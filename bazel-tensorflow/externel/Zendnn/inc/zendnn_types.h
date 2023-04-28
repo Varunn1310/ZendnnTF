@@ -2927,6 +2927,7 @@ typedef const struct zendnn_primitive *const_zendnn_primitive_t;
 #define ZENDNN_ARG_BN_SCALE     177
 #define ZENDNN_ARG_BN_MEAN      178
 #define ZENDNN_ARG_BN_OFFSET    179
+#define ZENDNN_ARG_LEAKYRELU_ALPHA  0.1f
 
 /// A special mnemonic for scale argument of normalization primitives.
 #define ZENDNN_ARG_DIFF_SCALE 255

@@ -1,4 +1,4 @@
-/*******************************************************************************
+﻿/*******************************************************************************
 * Copyright (c) 2019-2022 Advanced Micro Devices, Inc. All rights reserved.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
@@ -53,7 +53,9 @@ void zenConvolution2D_direct(
     const int out_width,
     const bool relu,
     const float *scale,
-    const float *elementwise_input
+    const float *elementwise_input,
+    const bool leakyrelu = false,
+    const float leakyrelu_alpha = 0.1f
 
 ) {
 
@@ -167,7 +169,7 @@ void zenConvolution2D_direct(
             zenPostOps(zenEnvObj, out_layer, elementwise_input, out_height, out_width,
                        no_of_filter, no_of_filter,
                        outputOffset, bias,
-                       relu, 0, scale, 1,0,0,no_of_images);
+                       relu, 0, scale, 1,0,0,no_of_images, leakyrelu, leakyrelu_alpha);
         }
     }
     free(data_col);
@@ -349,7 +351,9 @@ void zenConvolution2D_directVer3(
     const int out_width,
     const bool relu,
     const float *scale,
-    const float *elementwise_input
+    const float *elementwise_input,
+    const bool leakyrelu=false,
+    const float leakyrelu_alpha = 0.1f
 
 ) {
 
@@ -450,7 +454,7 @@ void zenConvolution2D_directVer3(
             zenPostOps(zenEnvObj, out_layer, elementwise_input, out_height, out_width,
                        no_of_filter, no_of_filter,
                        outputOffset, bias,
-                       relu, 0, scale, 1,0,0,no_of_images);
+                       relu, 0, scale, 1,0,0,no_of_images, leakyrelu, leakyrelu_alpha);
         }
     }
     //free(directOut);

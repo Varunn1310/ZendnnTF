@@ -1,4 +1,4 @@
-/*******************************************************************************
+﻿/*******************************************************************************
 * Copyright (c) 2019-2022 Advanced Micro Devices, Inc. All rights reserved.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
@@ -324,7 +324,9 @@ void zenPostOps(
     const int no_of_threads,
     const float *offset,
     const float  *mean,
-    const int batch_size
+    const int batch_size,
+    const bool leakyrelu,
+    const float leakyrelu_alpha
 ) {
 
     if (zenEnvObj.zenConvAlgo!=zenConvAlgoType::DIRECT1) {  // NHWC Path
@@ -361,6 +363,38 @@ void zenPostOps(
                         for (int c = 0; c < no_of_filter; c++) {
                             out_layer[ biasOffset + i + c ] = out_layer[ biasOffset + i + c ]>0
                                                               ?out_layer[ biasOffset + i + c ]:0;
+                        }
+                }
+            }
+            else if (leakyrelu) {
+                if (bias != NULL && scale != NULL) {
+                    #pragma omp parallel for num_threads(no_of_threads)
+                    for (i = 0; i < total_size; i += total_filters)
+                        #pragma omp simd
+                        for (int c = 0; c < no_of_filter; c++) {
+                            out_layer[ biasOffset + i + c ] = out_layer[ biasOffset + i + c] * scale[c] +
+                                                              bias[c];
+                            out_layer[ biasOffset + i + c ] = out_layer[ biasOffset + i + c ]>0
+                                                              ?out_layer[ biasOffset + i + c ]:out_layer[ biasOffset + i + c ]*leakyrelu_alpha;
+                        }
+                }
+                else if (bias != NULL && scale == NULL) {
+                    #pragma omp parallel for num_threads(no_of_threads)
+                    for (i = 0; i < total_size; i += total_filters)
+                        #pragma omp simd
+                        for (int c = 0; c < no_of_filter; c++) {
+                            out_layer[ biasOffset + i + c ] = out_layer[ biasOffset + i + c] + bias[c];
+                            out_layer[ biasOffset + i + c ] = out_layer[ biasOffset + i + c ]>0
+                                                              ?out_layer[ biasOffset + i + c ]:out_layer[ biasOffset + i + c ]*leakyrelu_alpha;
+                        }
+                }
+                else if (bias == NULL && scale == NULL) {
+                    #pragma omp parallel for num_threads(no_of_threads)
+                    for (i = 0; i < total_size; i += total_filters)
+                        #pragma omp simd
+                        for (int c = 0; c < no_of_filter; c++) {
+                            out_layer[ biasOffset + i + c ] = out_layer[ biasOffset + i + c ]>0
+                                                              ?out_layer[ biasOffset + i + c ]:out_layer[ biasOffset + i + c ]*leakyrelu_alpha;
                         }
                 }
             }
@@ -465,6 +499,41 @@ void zenPostOps(
                                                               elementwise_input[biasOffset + i + c];
                             out_layer[ biasOffset + i + c ] = out_layer[ biasOffset + i + c ]>0
                                                               ?out_layer[ biasOffset + i + c ]:0;
+                        }
+                }
+            }
+            else if (leakyrelu) {
+                if (bias != NULL && scale != NULL) {
+                    #pragma omp parallel for num_threads(no_of_threads)
+                    for (i = 0; i < total_size; i += total_filters)
+                        #pragma omp simd
+                        for (int c = 0; c < no_of_filter; c++) {
+                            out_layer[ biasOffset + i + c ] = out_layer[ biasOffset + i + c] * scale[c] +
+                                                              bias[c] + elementwise_input[biasOffset + i + c];
+                            out_layer[ biasOffset + i + c ] = out_layer[ biasOffset + i + c ]>0
+                                                              ?out_layer[ biasOffset + i + c ]:out_layer[ biasOffset + i + c ]*leakyrelu_alpha;
+                        }
+                }
+                else if (bias != NULL && scale == NULL) {
+                    #pragma omp parallel for num_threads(no_of_threads)
+                    for (i = 0; i < total_size; i += total_filters)
+                        #pragma omp simd
+                        for (int c = 0; c < no_of_filter; c++) {
+                            out_layer[ biasOffset + i + c ] = out_layer[ biasOffset + i + c] + bias[c] +
+                                                              elementwise_input[biasOffset + i + c];
+                            out_layer[ biasOffset + i + c ] = out_layer[ biasOffset + i + c ]>0
+                                                              ?out_layer[ biasOffset + i + c ]:out_layer[ biasOffset + i + c ]*leakyrelu_alpha;
+                        }
+                }
+                else if (bias == NULL && scale == NULL) {
+                    #pragma omp parallel for num_threads(no_of_threads)
+                    for (i = 0; i < total_size; i += total_filters)
+                        #pragma omp simd
+                        for (int c = 0; c < no_of_filter; c++) {
+                            out_layer[ biasOffset + i + c ] = out_layer[ biasOffset + i + c] +
+                                                              elementwise_input[biasOffset + i + c];
+                            out_layer[ biasOffset + i + c ] = out_layer[ biasOffset + i + c ]>0
+                                                              ?out_layer[ biasOffset + i + c ]:out_layer[ biasOffset + i + c ]*leakyrelu_alpha;
                         }
                 }
             }
@@ -592,6 +661,44 @@ void zenPostOps(
                                                                + offset[index_filter + n];
                                     out_layer[index + m + n]=out_layer[index + m + n]>0 ? out_layer[index + m + n] :
                                                              0;
+                                }
+                            }
+                        }
+                }
+            }
+            else if (leakyrelu) {
+                if (elementwise_input) { // Batchnorm and element wise
+                    #pragma omp parallel for num_threads(no_of_threads) collapse(2)
+                    for (int i=0; i< batch_size; i++)
+                        for (int r=0; r< filter_block; r++) {
+                            index = blocked_out_height_width*(i*filter_block + r);
+                            unsigned long index_filter = 8*r;
+                            #pragma omp simd
+                            for (int m=0; m< blocked_out_height_width; m=m+8) {
+                                for (int n=0; n < 8; n++) {
+                                    out_layer[index + m + n]  = scale[index_filter + n]*(out_layer[index + m + n] -
+                                                                mean[index_filter + n])
+                                                                + offset[index_filter + n]  + elementwise_input[index + m + n];
+                                    out_layer[index + m + n]=out_layer[index + m + n]>0 ? out_layer[index + m + n] :
+                                                             out_layer[index + m + n]*leakyrelu_alpha;
+                                }
+                            }
+                        }
+                }
+                else { // Batchnorm Only
+                    #pragma omp parallel for num_threads(no_of_threads) collapse(2)
+                    for (int i=0; i< batch_size; i++)
+                        for (int r=0; r< filter_block; r++) {
+                            index = blocked_out_height_width*(i*filter_block + r);
+                            unsigned long index_filter = 8*r;
+                            #pragma omp simd
+                            for (int m=0; m< blocked_out_height_width; m=m+8) {
+                                for (int n=0; n < 8; n++) {
+                                    out_layer[index + m +n]  = scale[index_filter + n]*(out_layer[index + m + n] -
+                                                               mean[index_filter + n])
+                                                               + offset[index_filter + n];
+                                    out_layer[index + m + n]=out_layer[index + m + n]>0 ? out_layer[index + m + n] :
+                                                             out_layer[index + m + n]*leakyrelu_alpha;
                                 }
                             }
                         }
@@ -761,6 +868,55 @@ void zenPostOps(
                             for (int m=0; m< blocked_out_height_width; m++) {
                                 out_layer[index + m] = out_layer[index + m ] + elementwise_input[index + m ];
                                 out_layer[index + m] = out_layer[index + m]>0 ? out_layer[index + m] : 0;
+                            }
+                        }
+                }
+            }
+            else if (leakyrelu) {
+                if (bias && !elementwise_input) { // bias
+                    #pragma omp parallel for num_threads(no_of_threads) collapse(2)
+                    for (int i=0; i< batch_size; i++)
+                        for (int r=0; r< filter_block; r++) {
+                            index = blocked_out_height_width*(i*filter_block + r);
+                            unsigned long index_filter = 8*r;
+                            #pragma omp simd
+                            for (int m=0; m< blocked_out_height_width; m=m+8) {
+                                for (int n=0; n < 8; n++) {
+                                    out_layer[index + m + n] = out_layer[index + m + n] + bias[index_filter + n];
+                                    out_layer[index + m + n] = out_layer[index + m + n]>0 ? out_layer[index + m +
+                                                               n] :
+                                                               out_layer[index + m + n]*leakyrelu_alpha;
+                                }
+                            }
+                        }
+                }
+                else if (bias && elementwise_input) { // bias and element wise
+                    #pragma omp parallel for num_threads(no_of_threads) collapse(2)
+                    for (int i=0; i< batch_size; i++)
+                        for (int r=0; r< filter_block; r++) {
+                            index = blocked_out_height_width*(i*filter_block + r);
+                            unsigned long index_filter = 8*r;
+                            #pragma omp simd
+                            for (int m=0; m< blocked_out_height_width; m=m+8) {
+                                for (int n=0; n < 8; n++) {
+                                    out_layer[index + m + n] = out_layer[index + m + n] + bias[index_filter + n] +
+                                                               elementwise_input[index + m + n];
+                                    out_layer[index + m + n]=out_layer[index + m + n]>0 ? out_layer[index + m + n] :
+                                                             out_layer[index + m + n]*leakyrelu_alpha;
+                                }
+                            }
+                        }
+                }
+                else if (!bias && elementwise_input)  { // Elementwise
+                    #pragma omp parallel for num_threads(no_of_threads) collapse(2)
+                    for (int i=0; i< batch_size; i++)
+                        for (int r=0; r< filter_block; r++) {
+                            index = blocked_out_height_width*(i*filter_block + r);
+                            unsigned long index_filter = 8*r;
+                            #pragma omp simd
+                            for (int m=0; m< blocked_out_height_width; m++) {
+                                out_layer[index + m] = out_layer[index + m ] + elementwise_input[index + m ];
+                                out_layer[index + m] = out_layer[index + m]>0 ? out_layer[index + m] : out_layer[index + m ]*leakyrelu_alpha;
                             }
                         }
                 }
@@ -936,7 +1092,7 @@ void zenPostOps(
 #endif
         zendnnInfo(ZENDNN_PROFLOG, "zenPostOps, no_of_images=", batch_size,
                    " height=", out_height, " width=", out_width,
-                   " no_of_filter=", no_of_filter, " relu_enable=", relu, " gelu=", gelu,
+                   " no_of_filter=", no_of_filter, " relu_enable=", relu, "leakyrelu_enable=", leakyrelu, " gelu=", gelu,
                    " batchNorm_enable=", batchNorm_enable, " elementWise_enable=",
                    elementWise_enable, " Time=", elapsed, "ms");
 

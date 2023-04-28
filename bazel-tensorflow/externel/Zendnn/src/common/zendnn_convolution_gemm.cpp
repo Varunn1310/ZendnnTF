@@ -1,4 +1,4 @@
-/*******************************************************************************
+﻿/*******************************************************************************
 * Copyright (c) 2019-2022 Advanced Micro Devices, Inc. All rights reserved.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
@@ -934,7 +934,9 @@ void zenConvolution2DsmallGemmMerge(
     const float *elementwise_input,
     const bool concat,
     const int filter_offset,
-    const int total_filters
+    const int total_filters,
+    const bool leakyrelu=false,
+    const float leakyrelu_alpha = 0.1f
 ) {
 
 #if 0
@@ -1148,7 +1150,7 @@ void zenConvolution2DsmallGemmMerge(
             zenPostOps(zenEnvObj, out_layer, elementwise_input,gemmRowsLast, 1,
                        no_of_filter, ldc,
                        biasOffset, bias, relu, 0,
-                       scale, blis_num_threads);
+                       scale, blis_num_threads, NULL, NULL, 1, leakyrelu, leakyrelu_alpha);
             continue;
         }
     }
@@ -1210,7 +1212,9 @@ void zenConvolution2DsmallGemm1x1(
     const float *elementwise_input,
     const bool concat,
     const int filter_offset,
-    const int total_filters
+    const int total_filters,
+    const bool leakyrelu=false,
+    const float leakyrelu_alpha = 0.1f
 ) {
 
 #if 0
@@ -1335,7 +1339,7 @@ void zenConvolution2DsmallGemm1x1(
         zenPostOps(zenEnvObj, out_layer, elementwise_input,gemmRows, 1, no_of_filter,
                    ldc, biasOffset,
                    bias, relu, 0, scale,
-                   blis_num_threads);
+                   blis_num_threads, NULL, NULL, 1, leakyrelu, leakyrelu_alpha);
     }
 #if 0
     gettimeofday(&end, 0);
@@ -3038,7 +3042,9 @@ void zenConvolution2Dgemm(
     const float *elementwise_input,
     const bool concat = false,
     const int filter_offset = 0,
-    const int total_filters = 0
+    const int total_filters = 0,
+    const bool leakyrelu = false,
+    const float leakyrelu_alpha = 0.1f
 ) {
 
     //TODO: This should be part of zendnn initialization
@@ -3061,7 +3067,7 @@ void zenConvolution2Dgemm(
             zenConvolution2D_direct(zenEnvObj, in_layer, batchsize, channels, height, width,
                                     filter, no_of_filter,
                                     kernel_h, kernel_w, pad_t, pad_l, pad_b, pad_r, stride_h, stride_w, bias,
-                                    out_layer, out_height, out_width, relu, scale);
+                                    out_layer, out_height, out_width, relu, scale, leakyrelu, leakyrelu_alpha);
         }
         else {
             if ((kernel_h == 1 && kernel_w == 1 &&  out_height == height &&
@@ -3069,7 +3075,7 @@ void zenConvolution2Dgemm(
                 zenConvolution2DsmallGemm1x1(zenEnvObj, in_layer, batchsize, channels, height,
                                              width, filter, no_of_filter,
                                              kernel_h, kernel_w, pad_t, pad_l, pad_b, pad_r, stride_h, stride_w, bias, i
-                                             out_layer, out_height, out_width, relu, scale);
+                                             out_layer, out_height, out_width, relu, scale, leakyrelu, leakyrelu_alpha);
             }
             else if (out_height*out_width < no_of_filter) {
                 //if out_height*out_width < no_of_filter, M will be less than N
@@ -3078,14 +3084,14 @@ void zenConvolution2Dgemm(
                 zenConvolution2DsmallGemmMerge(zenEnvObj, in_layer, batchsize, channels, height,
                                                width, filter, no_of_filter,
                                                kernel_h, kernel_w, pad_t, pad_l, pad_b, pad_r, stride_h, stride_w, bias,
-                                               out_layer, out_height, out_width, relu, scale);
+                                               out_layer, out_height, out_width, relu, scale, leakyrelu, leakyrelu_alpha);
             }
             else {
                 //zenConvolution2DsmallGemmVer2(zenEnvObj, in_layer, batchsize, channels, height, width, filter, no_of_filter,
                 zenConvolution2D_directVer3(zenEnvObj, in_layer, batchsize, channels, height,
                                             width, filter, no_of_filter,
                                             kernel_h, kernel_w, pad_t, pad_l, pad_b, pad_r, stride_h, stride_w, bias,
-                                            out_layer, out_height, out_width, relu, scale);
+                                            out_layer, out_height, out_width, relu, scale, leakyrelu, leakyrelu_alpha);
             }
         }
 #else
@@ -3519,7 +3525,9 @@ void zenConvolution2DwithBatchNormRelu(
     const int out_width,
     const bool concat,
     const int filter_offset,
-    const int total_filters
+    const int total_filters,
+    bool leakyrelu,
+    const float leakyrelu_alpha
 
 ) {
 
@@ -3536,12 +3544,22 @@ void zenConvolution2DwithBatchNormRelu(
     for (int r=0; r <no_of_filter; r++) {
         bias[r] = offset[r]-(scale[r]*mean[r]);
     }
-    zenConvolution2Dgemm(in_layer, batchsize, channels, height, width, filter,
+    if(leakyrelu == true){
+       zenConvolution2Dgemm(in_layer, batchsize, channels, height, width, filter,
+                         no_of_filter,
+                         kernel_h, kernel_w, pad_t, pad_l, pad_b, pad_r, stride_h, stride_w, bias,
+                         out_layer, out_height, out_width, false, false/*sum_fused*/, scale,
+                         NULL/*elementwise*/,
+                         concat, filter_offset, total_filters, true, leakyrelu_alpha); 
+    }
+    else{
+       zenConvolution2Dgemm(in_layer, batchsize, channels, height, width, filter,
                          no_of_filter,
                          kernel_h, kernel_w, pad_t, pad_l, pad_b, pad_r, stride_h, stride_w, bias,
                          out_layer, out_height, out_width, 1, false/*sum_fused*/, scale,
                          NULL/*elementwise*/,
                          concat, filter_offset, total_filters);
+    }
     //zenBatchNorm(batchsize, out_height, out_width,no_of_filter,scale,mean,offset,out_layer, 1,1);
     free(bias);
 }

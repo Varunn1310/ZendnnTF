@@ -1564,7 +1564,7 @@ zendnn_status_t ZENDNN_API zendnn_fused_convolution_forward_desc_init(
     const zendnn_dims_t padding_r, bool reluFused, bool batchNormFused,
     const  zendnn_memory_desc_t *batchNormScale_desc,
     const  zendnn_memory_desc_t *batchNormMean_desc,
-    const  zendnn_memory_desc_t *batchNormOffset_desc);
+    const  zendnn_memory_desc_t *batchNormOffset_desc, bool leakyreluFused);
 
 /// Initializes a descriptor for a convolution backward propagation primitive.
 ///

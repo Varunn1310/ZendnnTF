@@ -289,7 +289,9 @@ extern "C" {
         const int out_width,
         const bool concat = false,
         const int filter_offset = 0,
-        const int total_filters = 0
+        const int total_filters = 0,
+        const bool leakyrelu = false,
+        const float leakyrelu_alpha = 0.1f
     );
 
     void zenConvolution2DwithBatchNormsum(
@@ -392,6 +394,8 @@ extern "C" {
         const float *offset = NULL,
         const float  *mean = NULL,
         const int batch_size = 1,
+        const bool leakyrelu = false,
+        const float leakyrelu_alpha = 0.1f
     );
 
     void zenClipOp(

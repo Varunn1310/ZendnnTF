@@ -4883,7 +4883,7 @@ struct convolution_forward : public primitive {
              const memory::desc &src_desc, const memory::desc &weights_desc,
              const memory::desc &bias_desc, const memory::desc &dst_desc,
              const memory::dims &strides, const memory::dims &padding_l,
-             const memory::dims &padding_r, bool reluFused) {
+             const memory::dims &padding_r, bool reluFused, bool leakyrelufused) {
             memory::validate_dims(strides, src_desc.data.ndims - 2);
             memory::validate_dims(padding_l, src_desc.data.ndims - 2);
             memory::validate_dims(padding_r, src_desc.data.ndims - 2);
@@ -4894,7 +4894,7 @@ struct convolution_forward : public primitive {
                         convert_to_c(aalgorithm), &src_desc.data,
                         &weights_desc.data, &bias_desc.data, &dst_desc.data,
                         &strides[0], &padding_l[0], &padding_r[0], reluFused,
-                        false, nullptr, nullptr, nullptr),
+                        false, nullptr, nullptr, nullptr, leakyrelufused),
                 "could not create a descriptor for a relu fused convolution "
                 "forward propagation primitive");
         }
@@ -4914,7 +4914,7 @@ struct convolution_forward : public primitive {
              const memory::dims &padding_r, bool reluFused,
              bool batchNormFused, const memory::desc &batchNormScale_desc,
              const memory::desc &batchNormMean_desc,
-             const memory::desc &batchNormOffset_desc) {
+             const memory::desc &batchNormOffset_desc, bool leakyreluFused) {
             memory::validate_dims(strides, src_desc.data.ndims - 2);
             memory::validate_dims(padding_l, src_desc.data.ndims - 2);
             memory::validate_dims(padding_r, src_desc.data.ndims - 2);
@@ -4926,7 +4926,7 @@ struct convolution_forward : public primitive {
                         &weights_desc.data, &bias_desc.data, &dst_desc.data,
                         &strides[0], &padding_l[0], &padding_r[0], reluFused,
                         batchNormFused, &batchNormScale_desc.data,
-                        &batchNormMean_desc.data, &batchNormOffset_desc.data),
+                        &batchNormMean_desc.data, &batchNormOffset_desc.data, leakyreluFused),
                 "could not create a descriptor for a relu or batchnorm fused "
                 "convolution forward propagation primitive");
         }
