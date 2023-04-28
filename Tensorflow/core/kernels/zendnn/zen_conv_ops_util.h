@@ -245,6 +245,7 @@ class ZenConvPrimitive : public ZenPrimitive {
     // If there are post-ops, then update operation and primitive descriptor
     bool fused_batchnorm = false;
     bool fused_relu = false;
+    bool fused_leakyrelu = false;
     auto const &post_op_params = conv_params.post_op_params;
     primitive_attr post_ops_attr;
     post_ops post_ops;
@@ -268,8 +269,17 @@ class ZenConvPrimitive : public ZenPrimitive {
           DCHECK_EQ(post_op_param.param.size(), 1);
           float op_scale = post_op_param.param[0];
           post_ops_attr.set_output_scales(op_scale, conv_params.conv_scale);
+        } else if (post_op_param.name == "leakyrelu") {
+          fused_leakyrelu = true;
+          DCHECK_EQ(post_op_param.param.size(), 3);
+          float op_scale = post_op_param.param[0];
+          float op_alpha = post_op_param.param[1];
+          float op_beta = post_op_param.param[2];
+          post_ops.append_eltwise(op_scale, algorithm::eltwise_relu, op_alpha,
+                                  op_beta);
         } else {
           DCHECK((post_op_param.name == "relu") ||
+                 (post_op_param.name == "leakyrelu") ||
                  (post_op_param.name == "sum") ||
                  (post_op_param.name == "batchnorm"));
         }
@@ -291,7 +301,7 @@ class ZenConvPrimitive : public ZenPrimitive {
             *context_.dst_md, conv_params.strides, conv_params.padding_left,
             conv_params.padding_right, fused_relu, fused_batchnorm,
             *context_.bn_scale_md, *context_.bn_mean_md,
-            *context_.bn_offset_md));
+            *context_.bn_offset_md, fused_leakyrelu));
       }
       post_ops_attr.set_post_ops(post_ops);
       context_.conv_pd.reset(new convolution_forward::primitive_desc(
@@ -388,6 +398,8 @@ class ZenConvPrimitiveFactory : public ZenPrimitiveFactory {
     // Generate keys for post-ops
     for (auto const &post_op_param : conv_params.post_op_params) {
       if (post_op_param.name == "relu") {
+        DCHECK_EQ(post_op_param.param.size(), 3);
+      } else if (post_op_param.name == "leakyrelu") {
         DCHECK_EQ(post_op_param.param.size(), 3);
       } else if (post_op_param.name == "sum") {
         DCHECK_EQ(post_op_param.param.size(), 1);

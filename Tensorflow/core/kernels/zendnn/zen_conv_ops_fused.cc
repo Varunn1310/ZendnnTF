@@ -54,7 +54,7 @@ void zenGemmConvolution2D(void *input_array, int batch_size, int channels,
                           int stride_h, int stride_w, void *bias_array,
                           void *output_array, int out_height, int out_width,
                           bool reluFused, bool batchNormFused, bool addFused,
-                          void *bn_scale, void *bn_mean, void *bn_offset);
+                          void *bn_scale, void *bn_mean, void *bn_offsetbool, bool leakyreluFused=false);
 
 void zenBlockedConv2DBiasEltSum(
     zendnn::engine eng, zendnn::stream s, zendnn::primitive_attr conv_attr,
@@ -83,7 +83,7 @@ void zenConvolution2DBatchNormOrRelu(
     void *batch_norm_mean, void *batch_norm_offset, void *elementwise_input,
     void *output_array, int out_height, int out_width, bool reluFused,
     bool batchNormFused, bool reorder_before, bool reorder_after,
-    void *cached_filter_data_, void *context);
+    void *cached_filter_data_, void *context, bool leakyreluFused=false, float leakyrelu_alpha=0.1f);
 void zenQuantized(zendnn::engine eng, zendnn::stream s, void *input_array,
                   int batch_size, int height, int width, int channels,
                   float scale_factor, bool out_type, void *output);
@@ -994,7 +994,7 @@ struct LaunchZenFusedConv2DOp {
               dimensions.pad_cols_after, dimensions.stride_rows,
               dimensions.stride_cols, bias_arr, output_array,
               dimensions.out_rows, dimensions.out_cols, false, false, false,
-              nullptr, nullptr, nullptr);
+              nullptr, nullptr, nullptr, false);
         }
 #else
         zenConvolution2DwithBias(
@@ -1057,7 +1057,7 @@ struct LaunchZenFusedConv2DOp {
               dimensions.pad_cols_after, dimensions.stride_rows,
               dimensions.stride_cols, bias_arr, output_array,
               dimensions.out_rows, dimensions.out_cols, true, false, false,
-              nullptr, nullptr, nullptr);
+              nullptr, nullptr, nullptr, false);
         }
 #else
         zenConvolution2DwithBiasRelu(
@@ -1118,7 +1118,7 @@ struct LaunchZenFusedConv2DOp {
               dimensions.pad_cols_after, dimensions.stride_rows,
               dimensions.stride_cols, bias_arr, output_array,
               dimensions.out_rows, dimensions.out_cols, true, false, false,
-              nullptr, nullptr, nullptr);
+              nullptr, nullptr, nullptr, false);
           zenClipOp(zenEnvObj, (float *)output_array, 6.0F,
                     dimensions.batch * dimensions.out_depth *
                         dimensions.out_rows * dimensions.out_cols);
@@ -1178,7 +1178,7 @@ struct LaunchZenFusedConv2DOp {
               dimensions.pad_cols_after, dimensions.stride_rows,
               dimensions.stride_cols, bias_arr, output_array,
               dimensions.out_rows, dimensions.out_cols, false, false, true,
-              nullptr, nullptr, nullptr);
+              nullptr, nullptr, nullptr, false);
         }
 #else
         OP_REQUIRES_OK(context, errors::Internal("Fusion type not supported"));
@@ -1229,7 +1229,7 @@ struct LaunchZenFusedConv2DOp {
               dimensions.pad_cols_after, dimensions.stride_rows,
               dimensions.stride_cols, bias_arr, output_array,
               dimensions.out_rows, dimensions.out_cols, true, false, true,
-              nullptr, nullptr, nullptr);
+              nullptr, nullptr, nullptr, false);
         }
 #else
         OP_REQUIRES_OK(context, errors::Internal("Fusion type not supported"));
@@ -1243,6 +1243,7 @@ struct LaunchZenFusedConv2DOp {
             const_cast<T *>(fused_batch_norm_args.estimated_mean_data);
         T *batch_norm_offset_data =
             const_cast<T *>(fused_batch_norm_args.offset_data);
+        const float leakyrelu_alpha = fused_batch_norm_args.leakyrelu_alpha;
         if (is_depthwise) {
           // TODO: Handle this in graph layout pass and fall back to TF-Vanilla
           // for this
@@ -1264,7 +1265,7 @@ struct LaunchZenFusedConv2DOp {
               NULL,  // elementwise_input is not required
               output_array, dimensions.out_rows, dimensions.out_cols, false,
               true, reorder_before, reorder_after, cached_filter_data_,
-              context);
+              context, false, leakyrelu_alpha);
         } else {
           // GEMM based convolution
           zenGemmConvolution2D(
@@ -1277,7 +1278,7 @@ struct LaunchZenFusedConv2DOp {
               dimensions.stride_cols, bias_arr, output_array,
               dimensions.out_rows, dimensions.out_cols, false, true, false,
               fused_batch_norm_args.scaling_factor.data(), batch_norm_mean_data,
-              batch_norm_offset_data);
+              batch_norm_offset_data, false);
         }
 #else
         zenConvolution2DwithBatchNorm(
@@ -1301,6 +1302,7 @@ struct LaunchZenFusedConv2DOp {
             const_cast<T *>(fused_batch_norm_args.estimated_mean_data);
         T *batch_norm_offset_data =
             const_cast<T *>(fused_batch_norm_args.offset_data);
+        const float leakyrelu_alpha = fused_batch_norm_args.leakyrelu_alpha;
         if (is_depthwise) {
           // TODO: Handle this in graph layout pass and fall back to TF-Vanilla
           // for this
@@ -1323,7 +1325,7 @@ struct LaunchZenFusedConv2DOp {
               NULL,  // elementwise_input is not required
               output_array, dimensions.out_rows, dimensions.out_cols, true,
               true, reorder_before, reorder_after, cached_filter_data_,
-              context);
+              context, false, leakyrelu_alpha);
         } else {
           // GEMM based convolution
           zenGemmConvolution2D(
@@ -1336,7 +1338,68 @@ struct LaunchZenFusedConv2DOp {
               dimensions.stride_cols, bias_arr, output_array,
               dimensions.out_rows, dimensions.out_cols, true, true, false,
               fused_batch_norm_args.scaling_factor.data(), batch_norm_mean_data,
-              batch_norm_offset_data);
+              batch_norm_offset_data, false);
+        }
+#else
+        zenConvolution2DwithBatchNormRelu(
+            input_array, dimensions.batch, dimensions.in_depth,
+            dimensions.input_rows, dimensions.input_cols, filter_array,
+            dimensions.out_depth, dimensions.filter_rows,
+            dimensions.filter_cols, dimensions.pad_rows_before,
+            dimensions.pad_cols_before, dimensions.pad_rows_after,
+            dimensions.pad_cols_after, dimensions.stride_rows,
+            dimensions.stride_cols, fused_batch_norm_args.scaling_factor.data(),
+            fused_batch_norm_args.estimated_mean_data,
+            fused_batch_norm_args.offset_data, output_array,
+            dimensions.out_rows, dimensions.out_cols);
+#endif
+        break;
+      }
+      //Varun code
+      case FusedComputationType::kFusedBatchNormWithLeakyRelu: {
+#if NEW_API
+        T *bias_arr = NULL;
+        T *batch_norm_mean_data =
+            const_cast<T *>(fused_batch_norm_args.estimated_mean_data);
+        T *batch_norm_offset_data =
+            const_cast<T *>(fused_batch_norm_args.offset_data);
+        const float leakyrelu_alpha = fused_batch_norm_args.leakyrelu_alpha;
+        if (is_depthwise) {
+          // TODO: Handle this in graph layout pass and fall back to TF-Vanilla
+          // for this
+          OP_REQUIRES_OK(
+              context,
+              errors::Internal(
+                  "DepthWise Fusion with BatchNorm and LeakyRelu is not supported"));
+        } else if (blocked || blockedNHWC) {
+          primitive_attr conv_attr;
+          zenConvolution2DBatchNormOrRelu(
+              eng, s, conv_attr, in_arr, dimensions.batch, dimensions.in_depth,
+              dimensions.input_rows, dimensions.input_cols, filt_arr,
+              dimensions.out_depth, dimensions.filter_rows,
+              dimensions.filter_cols, dimensions.pad_rows_before,
+              dimensions.pad_cols_before, dimensions.pad_rows_after,
+              dimensions.pad_cols_after, dimensions.stride_rows,
+              dimensions.stride_cols, bias_arr,
+              fused_batch_norm_args.scaling_factor.data(), batch_norm_mean_data,
+              batch_norm_offset_data,
+              NULL,  // elementwise_input is not required
+              output_array, dimensions.out_rows, dimensions.out_cols, false,
+              true, reorder_before, reorder_after, cached_filter_data_,
+              context, true, leakyrelu_alpha);
+        } else {
+          // GEMM based convolution
+          zenGemmConvolution2D(
+              in_arr, dimensions.batch, dimensions.in_depth,
+              dimensions.input_rows, dimensions.input_cols, filt_arr,
+              dimensions.out_depth, dimensions.filter_rows,
+              dimensions.filter_cols, dimensions.pad_rows_before,
+              dimensions.pad_cols_before, dimensions.pad_rows_after,
+              dimensions.pad_cols_after, dimensions.stride_rows,
+              dimensions.stride_cols, bias_arr, output_array,
+              dimensions.out_rows, dimensions.out_cols, false, true, false,
+              fused_batch_norm_args.scaling_factor.data(), batch_norm_mean_data,
+              batch_norm_offset_data, true);
         }
 #else
         zenConvolution2DwithBatchNormRelu(
@@ -1387,6 +1450,7 @@ class ZenFusedConv2DOp : public OpKernel {
         {FCT::kBiasAddWithAddAndRelu, {"BiasAdd", "Add", "Relu"}},
         {FCT::kFusedBatchNorm, {"FusedBatchNorm"}},
         {FCT::kFusedBatchNormWithRelu, {"FusedBatchNorm", "Relu"}},
+        {FCT::kFusedBatchNormWithLeakyRelu, {"FusedBatchNorm", "LeakyRelu"}},
         {FCT::kFusedBatchNormWithRelu6, {"FusedBatchNorm", "Relu6"}},
         {FCT::kFusedBatchNormWithElu, {"FusedBatchNorm", "Elu"}},
     };

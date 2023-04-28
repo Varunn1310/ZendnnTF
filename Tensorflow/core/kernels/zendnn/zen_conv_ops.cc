@@ -39,7 +39,7 @@ void zenGemmConvolution2D(void *input_array, int batch_size, int channels,
                           int stride_h, int stride_w, void *bias_array,
                           void *output_array, int out_height, int out_width,
                           bool reluFused, bool batchNormFused, bool addFused,
-                          void *bn_scale, void *bn_mean, void *bn_offset);
+                          void *bn_scale, void *bn_mean, void *bn_offset, bool leakyreluFused=false);
 
 void zenConvolution2DBiasOrRelu(
     zendnn::engine eng, zendnn::stream s, zendnn::primitive_attr conv_attr,
@@ -183,7 +183,7 @@ class ZenConvOp : public OpKernel {
           dimensions.pad_rows_after, dimensions.pad_cols_after,
           dimensions.stride_rows, dimensions.stride_cols, bias_arr,
           output_array, dimensions.out_rows, dimensions.out_cols, false, false,
-          false, nullptr, nullptr, nullptr);
+          false, nullptr, nullptr, nullptr, false);
     }
 #else
     // TF-Zen approach#2 integration

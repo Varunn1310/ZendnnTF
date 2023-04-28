@@ -324,6 +324,7 @@ class ZenLayoutRewritePass : public GraphOptimizationPass {
             fused_ops == std::vector<string>{"BiasAdd", "Relu6"} ||
             fused_ops == std::vector<string>{"BiasAdd", "Add"} ||
             fused_ops == std::vector<string>{"BiasAdd", "Add", "Relu"} ||
+            fused_ops == std::vector<string>{"FusedBatchNorm", "LeakyRelu"} ||
             fused_ops == std::vector<string>{"FusedBatchNorm", "Relu"});
   }
 
@@ -477,6 +478,7 @@ class ZenLayoutRewritePass : public GraphOptimizationPass {
             fused_ops == std::vector<string>{"FusedBatchNorm"} ||
             fused_ops == std::vector<string>{"Relu"} ||
             fused_ops == std::vector<string>{"BiasAdd", "Relu"} ||
+            fused_ops == std::vector<string>{"FusedBatchNorm", "LeakyRelu"} ||
             fused_ops == std::vector<string>{"FusedBatchNorm", "Relu"}) &&
            (count == 4);
     return flag;
@@ -563,6 +565,7 @@ class ZenLayoutRewritePass : public GraphOptimizationPass {
       }
     }
     return ((fused_ops == std::vector<string>{"FusedBatchNorm"} ||
+    fused_ops == std::vector<string>{"FusedBatchNorm", "LeakyRelu"} ||
              fused_ops == std::vector<string>{"FusedBatchNorm", "Relu"}) &&
             !num_data_inputs);
   }
@@ -1639,6 +1642,11 @@ Status ZenLayoutRewritePass::ZenOpNodeRewrite(
     if (FuseCBR(g, orig_node, "Relu6")) {
       if (fused_ops.size() == 1) {
         fused_ops.push_back("Relu6");
+      }
+    }
+    if (FuseCBR(g, orig_node, "LeakyRelu")) {
+      if (fused_ops.size() == 1) {
+        fused_ops.push_back("LeakyRelu");
       }
     }
     nb.Attr("fused_ops", fused_ops);
